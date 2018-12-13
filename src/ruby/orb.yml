@@ -1,0 +1,165 @@
+version: 2.1
+
+description: |
+  Simplify common tasks for building and testing Ruby projects
+
+executors:
+  default:
+    parameters:
+      tag:
+        type: string
+        description: Pick a specific circleci/ruby image variant.
+        default: "latest-node-browsers"
+    docker:
+      - image: circleci/ruby:<< parameters.tag >>
+
+  ruby:
+    parameters:
+      tag:
+        type: string
+        description: Pick a specific circleci/ruby image variant.
+        default: "latest-node-browsers"
+    docker:
+      - image: circleci/ruby:<< parameters.tag >>
+
+  postgres:
+    parameters:
+      tag:
+        type: string
+        description: Pick a specific circleci/postgres image variant.
+        default: "latest"
+    docker:
+      - image: circleci/postgres:<< parameters.tag >>
+
+  mysql:
+    parameters:
+      tag:
+        type: string
+        description: Pick a specific circleci/mysql image variant.
+        default: "latest"
+    docker:
+      - image: circleci/mysql:<< parameters.tag >>
+
+commands:
+  install-bundler:
+    description: |
+      Install Bundler
+
+      This command installs bundler
+    parameters:
+      version:
+        type: string
+        description: Pick a version of Bundler to install.
+        default: "~> 1.0"
+    steps:
+      - run:
+          name: Install Bundler (<< parameters.version >>)
+          command: sudo gem install bundler -v "<< parameters.version >>"
+
+  with-cache:
+    description: |
+      Run a set of steps with bundler dependencies cached.
+
+      This command will first restore a cache of bundler dependencies, if one was
+      saved by a previous build. The provided `steps` will then be executed, and
+      if successful, a fresh cache will be saved, if required.
+
+      The contents of the `~/node_modules` directory is cached, which will substantially
+      improve build times for projects with many dependencies. This directory can be changed
+      with the `dir` parameter.
+
+      The cache-key is generated from `package.json`. This file path can be changed with the
+      `cache-key` parameter.
+    parameters:
+      steps:
+        type: steps
+        description: Input any custom steps to run with your Node cache.
+      dir:
+        type: string
+        description: Filepath to bundler gems.
+        default: ~/project/vendor/bundle
+      cache-key:
+        type: string
+        description: File to use as a Bundler cache checksum.
+        default: "Gemfile.lock"
+      cache-version:
+        type: string
+        description: Cache version; increment this for a fresh cache.
+        default: "v1"
+      use-strict-cache:
+        type: boolean
+        description: If true, ignores non-checksum cache hits.
+        default: false
+
+    steps:
+      - when:
+          condition: << parameters.use-strict-cache >>
+          steps:
+            - restore_cache:
+                keys:
+                  - bundler-deps-<< parameters.cache-version >>-{{ .Branch }}-{{ checksum "<< parameters.cache-key >>" }}
+      - unless:
+          condition: << parameters.use-strict-cache >>
+          steps:
+            - restore_cache:
+                keys:
+                  - bundler-deps-<< parameters.cache-version >>-{{ .Branch }}-{{ checksum "<< parameters.cache-key >>" }}
+                  - bundler-deps-<< parameters.cache-version >>-{{ .Branch }}-
+                  - bundler-deps-<< parameters.cache-version >>-
+
+      - steps: << parameters.steps >>
+
+      - save_cache:
+          key: bundler-deps-<< parameters.cache-version >>-{{ .Branch }}-{{ checksum "<< parameters.cache-key >>" }}
+          paths:
+            - << parameters.dir >>
+
+  bundle-install:
+    description: |
+      Install dependencies using bundle install
+    parameters:
+      bundler-version:
+        type: string
+        description: Install specified bundler version
+        default: ""
+      dir:
+        type: string
+        description: Filepath to bundler gems.
+        default: ~/project/vendor/bundle
+
+    steps:
+      - when:
+          condition: << parameters.bundler-version >>
+          steps:
+            - install-bundler:
+                version: << parameters.bundler-version >>
+
+      - with-cache:
+          dir: << parameters.dir >>
+          steps:
+            - run:
+                name: Run bundle install
+                command: |-
+                  bundle check --path << parameters.dir >> || bundle install --jobs=4 --retry=3 --path << parameters.dir >>
+
+  bundle-audit:
+    description: |
+      Perform Patch-level verification for bundler using https://github.com/rubysec/bundler-audit
+    parameters:
+      update:
+        type: boolean
+        description: Update ruby-advisory-db before checks
+        default: true
+    steps:
+      - run:
+          name: Install bundler-audit
+          command: gem install bundler-audit
+      - when:
+          condition: << parameters.update >>
+          steps:
+            - run:
+                name: Update ruby-advisory-db
+                command: bundle audit update
+      - run:
+          name: Run bundler audit
+          command: bundle audit check

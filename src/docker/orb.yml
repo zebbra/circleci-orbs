@@ -1,0 +1,108 @@
+version: 2.1
+
+description: |
+  Push docker image for repository tags
+
+orbs:
+  docker-publish: circleci/docker-publish@0.1.2
+
+commands:
+  pull:
+    description: |
+      Pull a docker image from the registry
+    parameters:
+      registry:
+        description: Name of registry to use. Defaults to docker.io.
+        type: string
+        default: docker.io
+      image:
+        description: Name of image to pull. Defaults to a combination of $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME.
+        type: string
+        default: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
+      tag:
+        description: Value for tag to use. Defaults to latest.
+        type: string
+        default: latest
+    steps:
+      - run:
+          name: Pull Docker image for release
+          command: |-
+            echo "Pulling image << parameters.registry >>/<< parameters.image >>:<< parameters.tag >> ..."
+            docker pull << parameters.registry >>/<< parameters.image >>:<< parameters.tag >>
+
+  tag:
+    description: |
+      Tag a docker image
+    parameters:
+      source:
+        description: Source image
+        type: string
+      target:
+        description: Target image
+        type: string
+    steps:
+      - run:
+          name: Tag Docker image
+          command: |-
+            echo "Tagging image << parameters.source >> as << parameters.target >> ..."
+            docker tag << parameters.source >> << parameters.target >>
+
+  push:
+    description: |
+      Push a docker image with tag
+    parameters:
+      registry:
+        description: Name of registry to use. Defaults to docker.io.
+        type: string
+        default: docker.io
+      image:
+        description: Name of image to pull. Defaults to a combination of $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME.
+        type: string
+        default: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
+      tag:
+        description: Value for tag to use. Defaults to latest.
+        type: string
+        default: latest
+    steps:
+      - run:
+          name: Push Docker image
+          command: |-
+            echo "Pushing image << parameters.registry >>/<< parameters.image >>:<< parameters.tag >> ..."
+            docker push << parameters.registry >>/<< parameters.image >>:<< parameters.tag >>
+
+jobs:
+  retag:
+    description: Pull, retag and push a docker image
+    executor: docker-publish/docker
+
+    parameters:
+      registry:
+        description: Name of registry to use. Defaults to docker.io.
+        type: string
+        default: docker.io
+      image:
+        description: Name of image to pull. Defaults to a combination of $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME.
+        type: string
+        default: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
+      from:
+        description: Existing tag to retag. Defaults to latest.
+        type: string
+      to:
+        description: New tag to use for pushed image.
+        type: string
+
+    steps:
+      - setup_remote_docker
+      - docker-publish/check:
+          registry: << parameters.registry >>
+      - pull:
+          registry: << parameters.registry >>
+          image: << parameters.image >>
+          tag: << parameters.from >>
+      - tag:
+          source: << parameters.registry >>/<< parameters.image >>:<< parameters.from >>
+          target: << parameters.registry >>/<< parameters.image >>:<< parameters.to >>
+      - push:
+          registry: << parameters.registry >>
+          image: << parameters.image >>
+          tag: << parameters.to >>
